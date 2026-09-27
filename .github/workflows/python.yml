@@ -6,12 +6,26 @@ on:
       - main
     paths:
       - "agent/**"
+      - "klaudbiusz/pyproject.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      # Keep the workflow itself in scope so the lock guard is self-testing:
+      # a PR that only edits this file must still run its jobs.
+      - ".github/workflows/**"
   pull_request:
     paths:
       - "agent/**"
+      - "klaudbiusz/pyproject.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      # Keep the workflow itself in scope so the lock guard is self-testing:
+      # a PR that only edits this file must still run its jobs.
+      - ".github/workflows/**"
 
 env:
   CONTAINER_NAME: agent-apiserver-1
+  # Fail CI instead of silently re-locking when a pyproject.toml and uv.lock diverge.
+  UV_LOCKED: "1"
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
   ECR_REGISTRY: 361769577597.dkr.ecr.us-west-2.amazonaws.com
@@ -197,6 +211,22 @@ jobs:
           docker compose down -v --remove-orphans
           echo "Cleanup complete."
 
+  lock-check:
+    name: Check uv.lock is up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.7.3"
+
+      - name: Verify uv.lock matches the workspace manifests
+        run: uv lock --check
+
   # not really unit for now, but should be at some point!
   unit-tests:
     name: Run Other Tests
@@ -317,6 +347,7 @@ jobs:
         health-check,
         e2e-tests,
         lint,
+        lock-check,
         rust-checks,
         rust-tests,
       ]

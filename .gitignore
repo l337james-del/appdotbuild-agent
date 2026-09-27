@@ -118,6 +118,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.local
 .venv
 env/
 venv/
@@ -162,6 +163,11 @@ test_results/
 tsp-output/
 .aider*
 .opencode
+
+# Stray npm manifests at the repo root only (this is a Python/Rust workspace;
+# template manifests live in subdirectories and must stay tracked).
+/package.json
+/package-lock.json
 
 **/.claude/settings.local.json
 debug_logs/*
