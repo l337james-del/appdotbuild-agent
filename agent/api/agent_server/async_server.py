@@ -49,6 +49,7 @@ from api.agent_server.template_diff_impl import TemplateDiffAgentImplementation
 from api.config import CONFIG
 
 from log import get_logger, configure_uvicorn_logging, set_trace_id, clear_trace_id
+from api.clerk_auth import resolve_auth_state
 from llm.telemetry import save_cumulative_stats
 
 logger = get_logger(__name__)
@@ -98,23 +99,35 @@ bearer_scheme = HTTPBearer(auto_error=False)
 async def verify_token(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
-    valid_token = CONFIG.builder_token
-    if not valid_token:
-        logger.info("No token configured, skipping authentication")
+    """Resolve request credentials (Clerk session token or builder token).
+
+    Behavior is unchanged from the original builder-token-only flow when no
+    CLERK_SECRET_KEY is configured; see api.clerk_auth for the additive
+    Clerk semantics.
+    """
+    state = await resolve_auth_state(credentials)
+
+    if state.authenticated:
         return True
 
-    if not credentials or not credentials.scheme == "Bearer":
+    if state.failure_reason == "clerk_required":
+        logger.info("Clerk enforcement enabled and no valid credentials provided")
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized - a valid Clerk session token is required",
+        )
+    if state.failure_reason == "missing":
         logger.info("Missing authentication token")
         raise HTTPException(
             status_code=401, detail="Unauthorized - missing authentication token"
         )
-
-    if credentials.scheme.lower() != "bearer" or credentials.credentials != valid_token:
+    if state.failure_reason == "invalid":
         logger.info("Invalid authentication token")
         raise HTTPException(
             status_code=403, detail="Unauthorized - invalid authentication token"
         )
 
+    # No builder token configured and Clerk disabled/enforcement off: open access.
     return True
 
 
@@ -357,6 +370,54 @@ async def message(
         # Return an HTTP error response for non-SSE errors
         error_response = ErrorResponse(error="Internal Server Error", details=str(e))
         raise HTTPException(status_code=500, detail=error_response.to_json())
+
+
+@app.get("/")
+async def root():
+    """Service info and lightweight readiness probe target.
+
+    Unlike /health, this does not open a Dagger connection, so it works
+    in environments without a container runtime.
+    """
+    return {
+        "service": "fullstack-agent",
+        "status": "running",
+        "default_template": CONFIG.default_template_id,
+        "templates": CONFIG.available_templates,
+        "endpoints": {
+            "message": "/message",
+            "templates": "/templates",
+            "health": "/health",
+        },
+    }
+
+
+@app.get("/me")
+async def me(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+):
+    """Return the authenticated identity for the current request.
+
+    Resolution order: Clerk session token, then builder token, then open
+    access. Mode "open" reports authenticated=False; when CLERK_ENFORCE is
+    enabled, unauthenticated requests are rejected to mirror the guarded
+    endpoints' policy.
+    """
+    state = await resolve_auth_state(credentials)
+    if state.failure_reason == "clerk_required":
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized - a valid Clerk session token is required",
+        )
+    if state.mode == "clerk" and state.identity is not None:
+        return {"authenticated": True, "mode": "clerk", "identity": state.identity}
+    if state.mode == "builder_token" and state.authenticated:
+        return {
+            "authenticated": True,
+            "mode": "builder_token",
+            "identity": {"provider": "builder", "user_id": "builder"},
+        }
+    return {"authenticated": False, "mode": state.mode, "identity": None}
 
 
 @app.get("/templates")

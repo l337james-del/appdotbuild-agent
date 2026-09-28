@@ -37,5 +37,21 @@ class Config:
     def snapshot_bucket(self):
         return os.getenv("SNAPSHOT_BUCKET", None)
 
+    @property
+    def clerk_secret_key(self):
+        """Clerk secret key (sk_...); when unset, Clerk auth is disabled."""
+        return os.getenv("CLERK_SECRET_KEY")
+
+    @property
+    def clerk_authorized_parties(self):
+        """Comma-separated list of allowed `azp` values for Clerk tokens."""
+        raw = os.getenv("CLERK_AUTHORIZED_PARTIES", "")
+        return [p.strip() for p in raw.split(",") if p.strip()]
+
+    @property
+    def clerk_enforce(self):
+        """When True, requests without a valid Clerk or builder token are rejected."""
+        return os.getenv("CLERK_ENFORCE", "").lower() in ("1", "true", "yes")
+
 
 CONFIG = Config()
