@@ -373,3 +373,33 @@ def test_integrations_report_enabled(client, supabase_full):
     # Keys must never be echoed.
     assert "service-key" not in r.text
     assert "anon-key" not in r.text
+
+
+# --- /state/{applicationId} endpoint -------------------------------------------------
+
+
+def test_state_endpoint_disabled(client, supabase_disabled):
+    r = client.get("/state/some-app")
+    assert r.status_code == 503
+    assert "not configured" in r.json()["detail"]
+
+
+def test_state_endpoint_missing_row(client, supabase_full, monkeypatch):
+    async def _none(application_id):
+        return None
+
+    monkeypatch.setattr(supabase_client, "load_agent_state", _none)
+    r = client.get("/state/some-app")
+    assert r.status_code == 404
+
+
+def test_state_endpoint_returns_state(client, supabase_full, monkeypatch):
+    async def _found(application_id):
+        return {"some": "state"}
+
+    monkeypatch.setattr(supabase_client, "load_agent_state", _found)
+    r = client.get("/state/some-app")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["applicationId"] == "some-app"
+    assert body["agentState"] == {"some": "state"}

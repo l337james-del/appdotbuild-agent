@@ -414,6 +414,7 @@ async def root():
             "message": "/message",
             "templates": "/templates",
             "health": "/health",
+            "state": "/state/{applicationId}",
         },
     }
 
@@ -458,6 +459,29 @@ async def integrations_status():
             "persistence_ready": supabase_client.is_configured(),
         },
     }
+
+
+@app.get("/state/{application_id}")
+async def get_stored_state(
+    application_id: str, token: str = Depends(verify_token)
+) -> dict:
+    """Inspect the persisted Supabase agent state for an application.
+
+    Complements the save/load hooks in run_agent so that durable
+    persistence can be verified over HTTP without executing an agent
+    run (which requires a container runtime).
+    """
+    if not supabase_client.is_configured():
+        raise HTTPException(
+            status_code=503, detail="Supabase persistence is not configured"
+        )
+    state = await supabase_client.load_agent_state(application_id)
+    if state is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No persisted state for application {application_id}",
+        )
+    return {"applicationId": application_id, "agentState": state}
 
 
 @app.get("/templates")
