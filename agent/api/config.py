@@ -53,5 +53,30 @@ class Config:
         """When True, requests without a valid Clerk or builder token are rejected."""
         return os.getenv("CLERK_ENFORCE", "").lower() in ("1", "true", "yes")
 
+    @property
+    def supabase_url(self):
+        """Supabase project URL; when unset, Supabase persistence is disabled."""
+        return os.getenv("SUPABASE_URL")
+
+    @property
+    def supabase_anon_key(self):
+        """Anon/publishable key for RLS-scoped client access.
+
+        Accepts both the legacy SUPABASE_ANON_KEY and the newer
+        SUPABASE_PUBLISHABLE_KEY naming.
+        """
+        return os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_PUBLISHABLE_KEY")
+
+    @property
+    def supabase_service_role_key(self):
+        """Service/secret key enabling server-side agent-state persistence.
+
+        Accepts both the legacy SUPABASE_SERVICE_ROLE_KEY and the newer
+        SUPABASE_SECRET_KEY naming.
+        """
+        return os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv(
+            "SUPABASE_SECRET_KEY"
+        )
+
 
 CONFIG = Config()

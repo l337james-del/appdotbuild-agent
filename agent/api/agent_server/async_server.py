@@ -50,6 +50,7 @@ from api.config import CONFIG
 
 from log import get_logger, configure_uvicorn_logging, set_trace_id, clear_trace_id
 from api.clerk_auth import resolve_auth_state
+from api import supabase_client
 from llm.telemetry import save_cumulative_stats
 
 logger = get_logger(__name__)
@@ -180,6 +181,17 @@ async def run_agent[T: AgentInterface](
         dagger.Config(log_output=open(os.devnull, "w"))
     ) as client:
         # Establish Dagger connection for the agent's execution context
+        # Restore durable state from Supabase when the request carries none,
+        # so a conversation can be resumed on any replica of a multi-instance
+        # deployment. No-op when Supabase is not configured.
+        if request.agent_state is None and supabase_client.is_configured():
+            restored = await supabase_client.load_agent_state(request.application_id)
+            if restored is not None:
+                logger.info(
+                    f"Restored agent state from Supabase for {request.application_id}"
+                )
+                request.agent_state = restored
+
         agent = session_manager.get_or_create_session(
             client, request, agent_class, *args, **kwargs
         )
@@ -239,6 +251,20 @@ async def run_agent[T: AgentInterface](
                         # Keep track of the last state in events with non-null state
                         if event.message and event.message.agent_state:
                             final_state = event.message.agent_state
+                            # Persist the newest state so a future request without
+                            # agentState can resume from Supabase. Fire-and-forget:
+                            # persistence problems never break the SSE stream.
+                            if supabase_client.is_configured():
+                                try:
+                                    await supabase_client.save_agent_state(
+                                        request.application_id,
+                                        request.trace_id,
+                                        final_state,
+                                    )
+                                except Exception as save_error:
+                                    logger.warning(
+                                        f"Supabase agent-state save error (ignored): {save_error}"
+                                    )
 
                         # Format SSE event properly with data: prefix and double newline at the end
                         # This ensures compatibility with SSE standard
@@ -418,6 +444,20 @@ async def me(
             "identity": {"provider": "builder", "user_id": "builder"},
         }
     return {"authenticated": False, "mode": state.mode, "identity": None}
+
+
+@app.get("/integrations")
+async def integrations_status():
+    """Report which optional integrations are active (never returns secrets)."""
+    return {
+        "clerk": {"active": CONFIG.clerk_secret_key is not None},
+        "supabase": {
+            "active": supabase_client.is_configured(),
+            "url": CONFIG.supabase_url,
+            "table": supabase_client.AGENT_STATES_TABLE,
+            "persistence_ready": supabase_client.is_configured(),
+        },
+    }
 
 
 @app.get("/templates")
