@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "edda": {
+      "type": "stdio",
+      "command": "${HOME}/.local/bin/edda_mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
