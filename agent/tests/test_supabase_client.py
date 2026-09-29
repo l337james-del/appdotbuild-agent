@@ -403,3 +403,50 @@ def test_state_endpoint_returns_state(client, supabase_full, monkeypatch):
     body = r.json()
     assert body["applicationId"] == "some-app"
     assert body["agentState"] == {"some": "state"}
+
+
+# --- POST /state/{applicationId} endpoint --------------------------------------------
+
+
+def test_state_post_endpoint_disabled(client, supabase_disabled):
+    r = client.post("/state/some-app", json={"agentState": {"a": 1}})
+    assert r.status_code == 503
+    assert "not configured" in r.json()["detail"]
+
+
+def test_state_post_endpoint_success(client, supabase_full, monkeypatch):
+    captured = {}
+
+    async def _save(application_id, trace_id, agent_state):
+        captured.update(
+            application_id=application_id, trace_id=trace_id, agent_state=agent_state
+        )
+        return True
+
+    monkeypatch.setattr(supabase_client, "save_agent_state", _save)
+    r = client.post(
+        "/state/some-app",
+        json={"agentState": {"a": 1}, "traceId": "tr-42"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body == {"applicationId": "some-app", "saved": True, "traceId": "tr-42"}
+    assert captured == {
+        "application_id": "some-app",
+        "trace_id": "tr-42",
+        "agent_state": {"a": 1},
+    }
+
+
+def test_state_post_endpoint_save_failure(client, supabase_full, monkeypatch):
+    async def _fail(application_id, trace_id, agent_state):
+        return False
+
+    monkeypatch.setattr(supabase_client, "save_agent_state", _fail)
+    r = client.post("/state/some-app", json={"agentState": {"a": 1}})
+    assert r.status_code == 502
+
+
+def test_state_post_endpoint_rejects_missing_agent_state(client, supabase_full):
+    r = client.post("/state/some-app", json={"traceId": "tr-42"})
+    assert r.status_code == 422

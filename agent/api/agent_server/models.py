@@ -9,7 +9,7 @@ Refer to `architecture.puml` for context within the system.
 """
 from enum import Enum
 import ujson as json
-from typing import Dict, List, Optional, Any, Union, Literal, Type, TypeVar
+from typing import Annotated, Dict, List, Optional, Any, Union, Literal, Type, TypeVar
 from pydantic import BaseModel, Field
 import datetime
 
@@ -169,6 +169,20 @@ class AgentRequest(BaseModel):
     def from_json(cls: Type[T], json_str: str) -> T:
         """Deserialize a JSON string to a model instance."""
         return cls.model_validate(json.loads(json_str))
+
+
+class StateUpdateRequest(BaseModel):
+    """Request body for persisting agent state via the /state endpoint."""
+    agent_state: Annotated[
+        Dict[str, Any],
+        Field(..., alias="agentState", description="The full agent state to persist for the application."),
+    ]
+    trace_id: Annotated[
+        Optional[str],
+        Field(None, alias="traceId", description="Optional trace id associated with this state snapshot."),
+    ]
+
+    model_config = {"populate_by_name": True}
 
 
 class ErrorResponse(BaseModel):

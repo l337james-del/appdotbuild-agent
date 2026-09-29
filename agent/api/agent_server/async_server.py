@@ -41,6 +41,7 @@ from api.agent_server.models import (
     MessageKind,
     ErrorResponse,
     ExternalContentBlock,
+    StateUpdateRequest,
 )
 from api.agent_server.interface import AgentInterface
 from trpc_agent.agent_session import TrpcAgentSession
@@ -458,6 +459,36 @@ async def integrations_status():
             "table": supabase_client.AGENT_STATES_TABLE,
             "persistence_ready": supabase_client.is_configured(),
         },
+    }
+
+
+@app.post("/state/{application_id}")
+async def save_stored_state(
+    application_id: str,
+    payload: StateUpdateRequest,
+    token: str = Depends(verify_token),
+) -> dict:
+    """Persist agent state for an application to Supabase.
+
+    Complements GET /state/{application_id} so that durable persistence
+    can be exercised over HTTP without executing an agent run (which
+    requires a container runtime).
+    """
+    if not supabase_client.is_configured():
+        raise HTTPException(
+            status_code=503, detail="Supabase persistence is not configured"
+        )
+    saved = await supabase_client.save_agent_state(
+        application_id, payload.trace_id or "", payload.agent_state
+    )
+    if not saved:
+        raise HTTPException(
+            status_code=502, detail="Failed to persist agent state"
+        )
+    return {
+        "applicationId": application_id,
+        "saved": True,
+        "traceId": payload.trace_id,
     }
 
 
