@@ -1,0 +1,61 @@
+{
+  "name": "appdotbuild-agent",
+  // Ubuntu 24.04 (not the bookworm-based devcontainers/python image): the
+  // prebuilt edda_mcp release binary requires GLIBC 2.39, which only noble
+  // ships (bookworm has 2.36 and fails to exec it).
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    // Real Docker daemon + CLI inside the container. Unblocks everything the
+    // Freebuff sandbox cannot run: Dagger-based agent runs (POST /message),
+    // the docker-gated pytest suites, and edda MCP tool execution.
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    // Project requires Python >= 3.12 (pyproject.toml).
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    }
+  },
+  // Run once when the container is created:
+  //  1. Install uv (Astral) - the project's package manager (see uv.lock).
+  //  2. Sync the workspace (agent/ + klaudbiusz/) from the lockfile.
+  //  3. Install the edda MCP server used by .mcp.json (Claude Code).
+  "onCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && ~/.local/bin/uv sync --frozen -p 3.12 && sh ./edda/install.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.makefile-tools",
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
+        "python.testing.pytestArgs": ["agent/tests"],
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports.ruff": "explicit"
+          }
+        },
+        "rust-analyzer.linkedProjects": ["edda/Cargo.toml"]
+      }
+    }
+  },
+  "forwardPorts": [8001],
+  "portsAttributes": {
+    "8001": {
+      "label": "agent server (uv run server)",
+      "onAutoForward": "notify"
+    }
+  },
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "UV_LINK_MODE": "copy",
+    "DO_NOT_TRACK": "1"
+  }
+}
